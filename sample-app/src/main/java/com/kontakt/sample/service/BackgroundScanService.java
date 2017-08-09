@@ -10,10 +10,13 @@ import android.widget.Toast;
 import com.kontakt.sdk.android.ble.configuration.ScanMode;
 import com.kontakt.sdk.android.ble.configuration.ScanPeriod;
 import com.kontakt.sdk.android.ble.connection.OnServiceReadyListener;
+import com.kontakt.sdk.android.ble.exception.ScanError;
+import com.kontakt.sdk.android.ble.filter.eddystone.EddystoneFilter;
 import com.kontakt.sdk.android.ble.manager.ProximityManager;
 import com.kontakt.sdk.android.ble.manager.ProximityManagerFactory;
 import com.kontakt.sdk.android.ble.manager.listeners.EddystoneListener;
 import com.kontakt.sdk.android.ble.manager.listeners.IBeaconListener;
+import com.kontakt.sdk.android.ble.manager.listeners.ScanStatusListener;
 import com.kontakt.sdk.android.ble.manager.listeners.simple.SimpleEddystoneListener;
 import com.kontakt.sdk.android.ble.manager.listeners.simple.SimpleIBeaconListener;
 import com.kontakt.sdk.android.common.profile.IBeaconDevice;
@@ -22,6 +25,7 @@ import com.kontakt.sdk.android.common.profile.IEddystoneDevice;
 import com.kontakt.sdk.android.common.profile.IEddystoneNamespace;
 import com.kontakt.sdk.android.common.profile.RemoteBluetoothDevice;
 
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 public class BackgroundScanService extends Service {
@@ -49,16 +53,54 @@ public class BackgroundScanService extends Service {
     //Create proximity manager instance
     proximityManager = ProximityManagerFactory.create(this);
 
+    ScanPeriod vitalsBackgroundPeriod = ScanPeriod.create(30000, 2200);
+
     //Configure proximity manager basic options
     proximityManager.configuration()
         //Using ranging for continuous scanning or MONITORING for scanning with intervals
-        .scanPeriod(ScanPeriod.RANGING)
+        .scanPeriod(vitalsBackgroundPeriod)
         //Using BALANCED for best performance/battery ratio
-        .scanMode(ScanMode.BALANCED);
+        .scanMode(ScanMode.LOW_POWER);
 
     //Setting up iBeacon and Eddystone listeners
-    proximityManager.setIBeaconListener(createIBeaconListener());
+
+    proximityManager.filters().eddystoneFilter(new EddystoneFilter() {
+      @Override
+      public boolean apply(IEddystoneDevice eddystone) {
+        Log.d(TAG, "Possible device=" + eddystone);
+        String namespace = eddystone != null?eddystone.getNamespace():null;
+        return namespace != null && namespace.equals("3d92f9630d8f584de4d9");
+      }
+    });
+//    proximityManager.setIBeaconListener(createIBeaconListener());
     proximityManager.setEddystoneListener(createEddystoneListener());
+
+    proximityManager.setScanStatusListener(new ScanStatusListener() {
+      @Override
+      public void onScanStart() {
+        Log.d(TAG, "SCAN START");
+      }
+
+      @Override
+      public void onScanStop() {
+        Log.d(TAG, "SCAN STOP");
+      }
+
+      @Override
+      public void onScanError(final ScanError scanError) {
+        Log.d(TAG, "SCAN ERROR " + scanError.getMessage());
+      }
+
+      @Override
+      public void onMonitoringCycleStart() {
+
+      }
+
+      @Override
+      public void onMonitoringCycleStop() {
+
+      }
+    });
   }
 
   @Override
@@ -87,7 +129,7 @@ public class BackgroundScanService extends Service {
         Toast.makeText(BackgroundScanService.this, "Scanning service started.", Toast.LENGTH_SHORT).show();
       }
     });
-    stopAfterDelay();
+//    stopAfterDelay();
   }
 
   private void stopAfterDelay() {
@@ -111,11 +153,20 @@ public class BackgroundScanService extends Service {
   }
 
   private EddystoneListener createEddystoneListener() {
-    return new SimpleEddystoneListener() {
+    return new EddystoneListener() {
       @Override
       public void onEddystoneDiscovered(IEddystoneDevice eddystone, IEddystoneNamespace namespace) {
-        onDeviceDiscovered(eddystone);
         Log.i(TAG, "onEddystoneDiscovered: " + eddystone.toString());
+      }
+
+      @Override
+      public void onEddystonesUpdated(List<IEddystoneDevice> eddystones, IEddystoneNamespace namespace) {
+        Log.i(TAG, "onEddystonesUpdated: " + eddystones.size());
+      }
+
+      @Override
+      public void onEddystoneLost(IEddystoneDevice eddystone, IEddystoneNamespace namespace) {
+        Log.e(TAG, "onEddystoneLost: " + eddystone.toString());
       }
     };
   }
